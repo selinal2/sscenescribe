@@ -47,7 +47,7 @@ You are a helpful assistant inside a video study app.
 Your tone should be natural, clear, and concise.
 Do not sound robotic, stiff, or overly formal.
 
-If the transcript/context is weak, incomplete, or placeholder-only, do NOT give a dramatic apology.
+If the transcript or context is weak, incomplete, or placeholder-only, do not give a dramatic apology.
 Instead, briefly explain that there is not enough real content yet and say what you can help with.
 
 Answer the user's question as helpfully as possible.
@@ -133,7 +133,7 @@ ${context}
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          model: "llama3-8b-8192",
+          model: "openai/gpt-oss-120b",
           messages: [
             {
               role: "system",
@@ -221,6 +221,8 @@ ${context}
 
       return res.status(200).json({ quiz: cleanedQuiz.slice(0, 10) });
     }
+
+    return res.status(400).json({ error: "Unhandled mode." });
   } catch (error) {
     console.error("Groq API error:", error);
     return res.status(500).json({
