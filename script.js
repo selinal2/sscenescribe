@@ -14,9 +14,12 @@ const aiActionButton = document.getElementById("aiActionButton");
 const saveNotesButton = document.getElementById("saveNotesButton");
 const aiInput = document.getElementById("aiInput");
 const commentInput = document.getElementById("commentInput");
+const noteDocInput = document.getElementById("noteDocInput");
 const quizContainer = document.getElementById("quizContainer");
 const menuDropdown = document.getElementById("menuDropdown");
 const transcriptMoreMenu = document.getElementById("transcriptMoreMenu");
+
+const VERCEL_AI_URL = "https://sscenescribe.vercel.app/api/ask";
 
 let transcript = [
   { start: 0, end: 11, text: "Intro section of the video begins here." },
@@ -26,41 +29,8 @@ let transcript = [
   { start: 44, end: 55, text: "The video moves toward a closing idea here." }
 ];
 
-const summaryOptions = [
-  "This video introduces the topic, gives useful background, shows an example, and ends with the main takeaway.",
-  "The video starts with a simple overview, explains the core concept, walks through an example, and summarizes the key lesson.",
-  "This video breaks the topic into clear parts: introduction, explanation, example, and final takeaway."
-];
-
-const takeawayOptions = [
-  [
-    "Understand the main idea before diving into details.",
-    "Examples make the concept easier to remember.",
-    "The final takeaway is usually the most important part."
-  ],
-  [
-    "Start with the overview to build context.",
-    "Watch closely when the example is introduced.",
-    "Review the ending section to lock in the main lesson."
-  ],
-  [
-    "Focus first on the core concept.",
-    "Use examples to connect theory to practice.",
-    "Summaries help you remember the important point."
-  ]
-];
-
-const aiAnswerOptions = [
-  "Here is a fresh placeholder response based on your question. Later, this can use the video transcript, notes, and comments to answer more intelligently.",
-  "This is a regenerated placeholder answer. In the real version, the app could analyze the transcript and give a more specific response.",
-  "This version gives you another sample answer. Once connected to a backend, it can answer using the actual content of the video."
-];
-
 let comments = [];
 let aiHistory = [];
-let summaryIndex = 0;
-let takeawayIndex = 0;
-let aiIndex = 0;
 let hasSummary = false;
 let hasTakeaways = false;
 let hasAIResponse = false;
@@ -73,19 +43,86 @@ let quizScore = 0;
 let answeredQuestions = [];
 let feedbackByQuestion = [];
 
+/* -------------------- helpers -------------------- */
+
 function formatTime(seconds) {
   const safeSeconds = Math.floor(seconds || 0);
   const hours = Math.floor(safeSeconds / 3600);
   const mins = Math.floor((safeSeconds % 3600) / 60);
   const secs = safeSeconds % 60;
-
-  return `${hours}:${mins.toString().padStart(2, "0")}:${secs
-    .toString()
-    .padStart(2, "0")}`;
+  return `${hours}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
+
+function getTranscriptText() {
+  if (!transcript.length) return "No transcript available.";
+  return transcript
+    .map((seg) => `${formatTime(seg.start)} - ${formatTime(seg.end)} ${seg.text}`)
+    .join("\n");
+}
+
+function getNotesText() {
+  return noteDocInput ? noteDocInput.value.trim() : "";
+}
+
+function getCommentsText() {
+  if (!comments.length) return "No comments.";
+  return comments
+    .map((comment) => `${formatTime(comment.time)} - ${comment.text}`)
+    .join("\n");
+}
+
+async function callAI(mode, extra = {}) {
+  const response = await fetch(VERCEL_AI_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      mode,
+      transcript: getTranscriptText(),
+      notes: getNotesText(),
+      comments: getCommentsText(),
+      ...extra
+    })
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || "AI request failed");
+  }
+
+  return data;
+}
+
+function setButtonState(button, hasContent, generateLabel, regenerateLabel) {
+  button.textContent = hasContent ? regenerateLabel : generateLabel;
+  button.title = hasContent ? "Regenerate" : "Generate";
+  button.setAttribute("aria-label", hasContent ? "Regenerate" : "Generate");
+}
+
+function updateActionButtons() {
+  setButtonState(summaryActionButton, hasSummary, "+", "↻");
+  setButtonState(takeawaysActionButton, hasTakeaways, "+", "↻");
+  setButtonState(aiActionButton, hasAIResponse, "+", "↻");
+}
+
+/* -------------------- menu -------------------- */
 
 function toggleMenu() {
   menuDropdown.classList.toggle("open");
+}
+
+function closeMenu() {
+  menuDropdown.classList.remove("open");
+}
+
+function toggleTranscriptMoreMenu() {
+  transcriptMoreMenu.classList.toggle("open");
+}
+
+function closeTranscriptMoreMenu() {
+  transcriptMoreMenu.classList.remove("open");
 }
 
 function goToDashboard() {
@@ -108,18 +145,6 @@ function openSettingsPage() {
   window.location.href = "settings.html";
 }
 
-function closeMenu() {
-  menuDropdown.classList.remove("open");
-}
-
-function toggleTranscriptMoreMenu() {
-  transcriptMoreMenu.classList.toggle("open");
-}
-
-function closeTranscriptMoreMenu() {
-  transcriptMoreMenu.classList.remove("open");
-}
-
 document.addEventListener("click", (e) => {
   const wrapper = document.querySelector(".menu-wrapper");
   if (wrapper && !wrapper.contains(e.target)) {
@@ -132,63 +157,44 @@ document.addEventListener("click", (e) => {
   }
 });
 
-function shareTranscript() {
-  const text = transcript
-    .map((seg) => `${formatTime(seg.start)} - ${formatTime(seg.end)}\n${seg.text}`)
-    .join("\n\n");
+/* -------------------- tabs -------------------- */
 
-  if (navigator.share) {
-    navigator.share({
-      title: `${videoTitle.textContent} Transcript`,
-      text
-    }).catch(() => {});
-    return;
+function switchTab(tabId, clickedButton = null) {
+  const allTabs = document.querySelectorAll(".tab-content");
+  const allButtons = document.querySelectorAll(".tab-button");
+
+  allTabs.forEach((tab) => tab.classList.remove("active"));
+  allButtons.forEach((btn) => btn.classList.remove("active"));
+
+  if (clickedButton) {
+    clickedButton.classList.add("active");
+  } else {
+    const map = {
+      transcript: 0,
+      notes: 1,
+      comments: 2,
+      ai: 3,
+      quiz: 4
+    };
+    if (map[tabId] !== undefined) {
+      allButtons[map[tabId]].classList.add("active");
+    }
   }
 
-  navigator.clipboard.writeText(text).catch(() => {});
-}
-
-function retranscribeFile() {
-  closeTranscriptMoreMenu();
-  if (!isNaN(video.duration)) {
-    generateTranscriptFromDuration(video.duration);
+  if (tabId === "transcript") {
+    document.getElementById("transcriptTab").classList.add("active");
+  } else if (tabId === "notes") {
+    document.getElementById("notesTab").classList.add("active");
+  } else if (tabId === "comments") {
+    document.getElementById("commentsTab").classList.add("active");
+  } else if (tabId === "ai") {
+    document.getElementById("aiTab").classList.add("active");
+  } else if (tabId === "quiz") {
+    document.getElementById("quizTab").classList.add("active");
   }
 }
 
-function renameTranscript() {
-  closeTranscriptMoreMenu();
-  const newName = prompt("Rename transcript:", `${videoTitle.textContent} Transcript`);
-  if (!newName) return;
-  videoTitle.textContent = newName;
-}
-
-function moveTranscript() {
-  closeTranscriptMoreMenu();
-  alert("Move feature coming soon.");
-}
-
-function deleteOriginalFile() {
-  closeTranscriptMoreMenu();
-  alert("Delete original file feature coming soon.");
-}
-
-function deleteTranscript() {
-  closeTranscriptMoreMenu();
-  transcript = [];
-  renderTranscript();
-}
-
-function setButtonState(button, hasContent, generateLabel, regenerateLabel) {
-  button.textContent = hasContent ? regenerateLabel : generateLabel;
-  button.title = hasContent ? "Regenerate" : "Generate";
-  button.setAttribute("aria-label", hasContent ? "Regenerate" : "Generate");
-}
-
-function updateActionButtons() {
-  setButtonState(summaryActionButton, hasSummary, "+", "↻");
-  setButtonState(takeawaysActionButton, hasTakeaways, "+", "↻");
-  setButtonState(aiActionButton, hasAIResponse, "+", "↻");
-}
+/* -------------------- transcript -------------------- */
 
 function renderTranscript() {
   transcriptContainer.innerHTML = "";
@@ -287,6 +293,72 @@ function updateTranscriptHighlight() {
   }
 }
 
+function exportTranscript() {
+  const transcriptText = transcript
+    .map((seg) => `${formatTime(seg.start)} - ${formatTime(seg.end)}\n${seg.text}`)
+    .join("\n\n");
+
+  const blob = new Blob([transcriptText], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${videoTitle.textContent || "transcript"}-transcript.txt`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+
+  URL.revokeObjectURL(url);
+}
+
+function shareTranscript() {
+  const text = transcript
+    .map((seg) => `${formatTime(seg.start)} - ${formatTime(seg.end)}\n${seg.text}`)
+    .join("\n\n");
+
+  if (navigator.share) {
+    navigator.share({
+      title: `${videoTitle.textContent} Transcript`,
+      text
+    }).catch(() => {});
+    return;
+  }
+
+  navigator.clipboard.writeText(text).catch(() => {});
+}
+
+function retranscribeFile() {
+  closeTranscriptMoreMenu();
+  if (!isNaN(video.duration)) {
+    generateTranscriptFromDuration(video.duration);
+  }
+}
+
+function renameTranscript() {
+  closeTranscriptMoreMenu();
+  const newName = prompt("Rename transcript:", `${videoTitle.textContent} Transcript`);
+  if (!newName) return;
+  videoTitle.textContent = newName;
+}
+
+function moveTranscript() {
+  closeTranscriptMoreMenu();
+  alert("Move feature coming soon.");
+}
+
+function deleteOriginalFile() {
+  closeTranscriptMoreMenu();
+  alert("Delete original file feature coming soon.");
+}
+
+function deleteTranscript() {
+  closeTranscriptMoreMenu();
+  transcript = [];
+  renderTranscript();
+}
+
+/* -------------------- comments -------------------- */
+
 function createCommentElement(comment) {
   const commentDiv = document.createElement("div");
   commentDiv.className = "comment-card";
@@ -361,40 +433,91 @@ function deleteComment(commentId) {
   renderComments();
 }
 
-function switchTab(tabId, clickedButton = null) {
-  const allTabs = document.querySelectorAll(".tab-content");
-  const allButtons = document.querySelectorAll(".tab-button");
+/* -------------------- notes -------------------- */
 
-  allTabs.forEach((tab) => tab.classList.remove("active"));
-  allButtons.forEach((btn) => btn.classList.remove("active"));
-
-  if (clickedButton) {
-    clickedButton.classList.add("active");
-  } else {
-    const map = {
-      transcript: 0,
-      notes: 1,
-      comments: 2,
-      ai: 3,
-      quiz: 4
-    };
-    if (map[tabId] !== undefined) {
-      allButtons[map[tabId]].classList.add("active");
-    }
+function saveNoteDoc() {
+  if (saveButtonTimeout) {
+    clearTimeout(saveButtonTimeout);
   }
 
-  if (tabId === "transcript") {
-    document.getElementById("transcriptTab").classList.add("active");
-  } else if (tabId === "notes") {
-    document.getElementById("notesTab").classList.add("active");
-  } else if (tabId === "comments") {
-    document.getElementById("commentsTab").classList.add("active");
-  } else if (tabId === "ai") {
-    document.getElementById("aiTab").classList.add("active");
-  } else if (tabId === "quiz") {
-    document.getElementById("quizTab").classList.add("active");
+  saveNotesButton.textContent = "✓";
+  saveNotesButton.classList.add("saved-check");
+
+  saveButtonTimeout = setTimeout(() => {
+    saveNotesButton.textContent = "Save";
+    saveNotesButton.classList.remove("saved-check");
+  }, 2000);
+}
+
+/* -------------------- summary -------------------- */
+
+async function generateSummary() {
+  summaryElement.textContent = "Generating summary...";
+
+  try {
+    const data = await callAI("summary");
+    summaryElement.textContent = data.summary || "No summary received.";
+    hasSummary = true;
+    updateActionButtons();
+  } catch (error) {
+    summaryElement.textContent = "Could not generate summary.";
   }
 }
+
+async function regenerateSummary() {
+  await generateSummary();
+}
+
+function handleSummaryAction() {
+  if (!hasSummary) {
+    generateSummary();
+  } else {
+    regenerateSummary();
+  }
+}
+
+/* -------------------- takeaways -------------------- */
+
+function formatTakeawaysFromAI(takeaways) {
+  if (Array.isArray(takeaways)) {
+    return takeaways.map((item) => `• ${item}`).join("\n");
+  }
+
+  if (typeof takeaways === "string") {
+    return takeaways;
+  }
+
+  return "No takeaways received.";
+}
+
+async function generateTakeaways() {
+  takeawaysElement.textContent = "Generating takeaways...";
+
+  try {
+    const data = await callAI("takeaways");
+    takeawaysElement.textContent = formatTakeawaysFromAI(
+      data.takeaways || data.answer
+    );
+    hasTakeaways = true;
+    updateActionButtons();
+  } catch (error) {
+    takeawaysElement.textContent = "Could not generate takeaways.";
+  }
+}
+
+async function regenerateTakeaways() {
+  await generateTakeaways();
+}
+
+function handleTakeawaysAction() {
+  if (!hasTakeaways) {
+    generateTakeaways();
+  } else {
+    regenerateTakeaways();
+  }
+}
+
+/* -------------------- ai chat -------------------- */
 
 function renderAI() {
   aiMessages.innerHTML = "";
@@ -440,31 +563,36 @@ function renderAI() {
   aiMessages.scrollTop = aiMessages.scrollHeight;
 }
 
-function askAI() {
+async function askAI() {
   const question = aiInput.value.trim();
   if (!question) return;
 
-  const answer = aiAnswerOptions[aiIndex % aiAnswerOptions.length];
-  aiIndex += 1;
+  aiHistory.push({
+    question,
+    answer: "Thinking..."
+  });
 
-  aiHistory.push({ question, answer });
-  hasAIResponse = true;
-  updateActionButtons();
-
-  aiInput.value = "";
   renderAI();
+  aiInput.value = "";
+
+  try {
+    const data = await callAI("chat", { question });
+
+    aiHistory[aiHistory.length - 1].answer =
+      data.answer || "No response.";
+
+    hasAIResponse = true;
+    updateActionButtons();
+    renderAI();
+  } catch (error) {
+    aiHistory[aiHistory.length - 1].answer = "Error connecting to AI.";
+    renderAI();
+  }
 }
 
 function handleAIAction() {
   if (!hasAIResponse) {
-    const question = aiInput.value.trim() || "Give me a quick overview of this video.";
-    const answer = aiAnswerOptions[aiIndex % aiAnswerOptions.length];
-    aiIndex += 1;
-
-    aiHistory.push({ question, answer });
-    hasAIResponse = true;
-    updateActionButtons();
-    renderAI();
+    askAI();
     return;
   }
 
@@ -475,132 +603,13 @@ function regenerateAI() {
   if (aiHistory.length === 0) return;
 
   const latestQuestion = aiHistory[aiHistory.length - 1].question;
-  const newAnswer = aiAnswerOptions[aiIndex % aiAnswerOptions.length];
-  aiIndex += 1;
-
-  aiHistory[aiHistory.length - 1] = {
-    question: latestQuestion,
-    answer: newAnswer
-  };
-
-  hasAIResponse = true;
-  updateActionButtons();
+  aiInput.value = latestQuestion;
+  aiHistory.pop();
   renderAI();
+  askAI();
 }
 
-function generateSummary() {
-  summaryElement.textContent = summaryOptions[summaryIndex % summaryOptions.length];
-  hasSummary = true;
-  updateActionButtons();
-}
-
-function regenerateSummary() {
-  summaryIndex += 1;
-  summaryElement.textContent = summaryOptions[summaryIndex % summaryOptions.length];
-  hasSummary = true;
-  updateActionButtons();
-}
-
-function handleSummaryAction() {
-  if (!hasSummary) {
-    generateSummary();
-  } else {
-    regenerateSummary();
-  }
-}
-
-function formatTakeaways(takeaways) {
-  return takeaways.map((item) => `• ${item}`).join("\n");
-}
-
-function generateTakeaways() {
-  const takeaways = takeawayOptions[takeawayIndex % takeawayOptions.length];
-  takeawaysElement.textContent = formatTakeaways(takeaways);
-  hasTakeaways = true;
-  updateActionButtons();
-}
-
-function regenerateTakeaways() {
-  takeawayIndex += 1;
-  const takeaways = takeawayOptions[takeawayIndex % takeawayOptions.length];
-  takeawaysElement.textContent = formatTakeaways(takeaways);
-  hasTakeaways = true;
-  updateActionButtons();
-}
-
-function handleTakeawaysAction() {
-  if (!hasTakeaways) {
-    generateTakeaways();
-  } else {
-    regenerateTakeaways();
-  }
-}
-
-function saveNoteDoc() {
-  if (saveButtonTimeout) {
-    clearTimeout(saveButtonTimeout);
-  }
-
-  saveNotesButton.textContent = "✓";
-  saveNotesButton.classList.add("saved-check");
-
-  saveButtonTimeout = setTimeout(() => {
-    saveNotesButton.textContent = "Save";
-    saveNotesButton.classList.remove("saved-check");
-  }, 2000);
-}
-
-function shuffleArray(array) {
-  const arr = [...array];
-  for (let i = arr.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-}
-
-function createQuestion(question, correctAnswer, wrongAnswers, explanation, topic) {
-  return {
-    question,
-    correctAnswer,
-    explanation,
-    topic,
-    options: shuffleArray([correctAnswer, ...wrongAnswers])
-  };
-}
-
-function buildQuizFromTranscript() {
-  const sentencePool = transcript.map((seg) => seg.text);
-
-  const baseQuestions = [
-    createQuestion(
-      "What does the video begin with?",
-      transcript[0]?.text || "An introduction",
-      sentencePool.slice(1, 4).length ? sentencePool.slice(1, 4) : ["A random ending", "A comment section", "A blank screen"],
-      "The first transcript segment represents the opening of the video.",
-      "understanding the opening"
-    ),
-    createQuestion(
-      "What happens later in the video?",
-      transcript[Math.min(2, transcript.length - 1)]?.text || "More explanation",
-      shuffleArray(sentencePool.filter((t) => t !== (transcript[Math.min(2, transcript.length - 1)]?.text || ""))).slice(0, 3),
-      "This checks whether you can identify later transcript segments.",
-      "following transcript order"
-    )
-  ];
-
-  const dynamicQuestions = sentencePool.map((sentence, index) =>
-    createQuestion(
-      `Which transcript statement matches segment ${index + 1}?`,
-      sentence,
-      shuffleArray(sentencePool.filter((item) => item !== sentence)).slice(0, 3),
-      `That segment says: "${sentence}"`,
-      "matching transcript details"
-    )
-  );
-
-  return shuffleArray([...baseQuestions, ...dynamicQuestions]).slice(0, 10);
-}
+/* -------------------- quiz -------------------- */
 
 function getImprovementAreas() {
   const wrongTopics = feedbackByQuestion
@@ -746,32 +755,30 @@ function goToNextQuestion() {
   }
 }
 
-function generateQuiz() {
-  currentQuiz = buildQuizFromTranscript();
-  currentQuizIndex = 0;
-  quizScore = 0;
-  answeredQuestions = new Array(currentQuiz.length).fill(false);
-  feedbackByQuestion = new Array(currentQuiz.length).fill(null);
-  renderCurrentQuizQuestion();
+async function generateQuiz() {
+  quizContainer.innerHTML = `<div class="empty-state">Generating quiz...</div>`;
+
+  try {
+    const data = await callAI("quiz");
+
+    currentQuiz = Array.isArray(data.quiz) ? data.quiz : [];
+    currentQuizIndex = 0;
+    quizScore = 0;
+    answeredQuestions = new Array(currentQuiz.length).fill(false);
+    feedbackByQuestion = new Array(currentQuiz.length).fill(null);
+
+    if (!currentQuiz.length) {
+      quizContainer.innerHTML = `<div class="empty-state">Could not generate quiz.</div>`;
+      return;
+    }
+
+    renderCurrentQuizQuestion();
+  } catch (error) {
+    quizContainer.innerHTML = `<div class="empty-state">Could not generate quiz.</div>`;
+  }
 }
 
-function exportTranscript() {
-  const transcriptText = transcript
-    .map((seg) => `${formatTime(seg.start)} - ${formatTime(seg.end)}\n${seg.text}`)
-    .join("\n\n");
-
-  const blob = new Blob([transcriptText], { type: "text/plain;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${videoTitle.textContent || "transcript"}-transcript.txt`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-
-  URL.revokeObjectURL(url);
-}
+/* -------------------- events -------------------- */
 
 aiInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
@@ -824,6 +831,8 @@ videoUpload.addEventListener("change", (event) => {
     updateTranscriptHighlight();
   };
 });
+
+/* -------------------- init -------------------- */
 
 renderTranscript();
 renderComments();
