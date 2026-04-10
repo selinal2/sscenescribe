@@ -4,6 +4,9 @@
   "description": "A Pen created on CodePen.",
   "main": "script.js",
   "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -16,5 +19,10 @@
   "bugs": {
     "url": "https://github.com/selinal2/sscenescribe/issues"
   },
-  "homepage": "https://github.com/selinal2/sscenescribe#readme"
+  "homepage": "https://github.com/selinal2/sscenescribe#readme",
+  "dependencies": {
+    "next": "^14.2.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
 }
