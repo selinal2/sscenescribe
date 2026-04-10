@@ -1,6 +1,6 @@
 {
   "type": "module",
   "dependencies": {
-    "openai": "^5.0.0"
+    "@groq/sdk": "^0.7.0"
   }
 }
