@@ -18,46 +18,80 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "Missing GROQ_API_KEY in Vercel." });
     }
 
+    const safeTranscript = transcript || "";
+    const safeNotes = notes || "";
+    const safeComments = comments || "";
+
+    const weakTranscript =
+      !safeTranscript.trim() ||
+      safeTranscript.includes("Transcript segment from") ||
+      safeTranscript.length < 80;
+
     const context = `
 Transcript:
-${transcript || "No transcript provided."}
+${safeTranscript || "No transcript provided."}
 
 Notes:
-${notes || "No notes provided."}
+${safeNotes || "No notes provided."}
 
 Comments:
-${comments || "No comments provided."}
+${safeComments || "No comments provided."}
 `;
 
     let prompt = "";
 
     if (mode === "chat") {
       prompt = `
-Answer the user's question using only the context below when possible.
-If the answer is not in the context, say that clearly.
+You are a helpful assistant inside a video study app.
 
+Your tone should be natural, clear, and concise.
+Do not sound robotic, stiff, or overly formal.
+
+If the transcript/context is weak, incomplete, or placeholder-only, do NOT give a dramatic apology.
+Instead, briefly explain that there is not enough real content yet and say what you *can* help with.
+
+Answer the user's question as helpfully as possible.
+
+Weak transcript: ${weakTranscript ? "yes" : "no"}
+
+Context:
 ${context}
 
-Question:
+User question:
 ${question || ""}
 `;
     } else if (mode === "summary") {
       prompt = `
-Write a short summary in 2 to 4 sentences using only this context.
+You are writing a short summary for a video study app.
 
+Be natural and concise.
+If the transcript is weak or placeholder-only, say briefly that there is not enough real transcript content to summarize yet.
+
+Weak transcript: ${weakTranscript ? "yes" : "no"}
+
+Context:
 ${context}
 `;
     } else if (mode === "takeaways") {
       prompt = `
-Give 3 to 5 key takeaways from this context.
-Keep them short and clear.
+You are generating key takeaways for a video study app.
+
+Be concise and natural.
+If the transcript is weak or placeholder-only, say briefly that there is not enough real content yet.
+
 Return plain text only.
 
+Weak transcript: ${weakTranscript ? "yes" : "no"}
+
+Context:
 ${context}
 `;
     } else if (mode === "quiz") {
       prompt = `
-Create exactly 10 multiple choice questions using only this context.
+You are generating a quiz for a video study app.
+
+If the transcript is weak or placeholder-only, do not invent detailed facts.
+Instead, create very general comprehension questions only if possible.
 
 Return ONLY valid JSON in this exact shape:
 {
@@ -81,6 +115,9 @@ Rules:
 - no markdown
 - no text outside the JSON
 
+Weak transcript: ${weakTranscript ? "yes" : "no"}
+
+Context:
 ${context}
 `;
     } else {
@@ -98,10 +135,17 @@ ${context}
         body: JSON.stringify({
           model: "openai/gpt-oss-120b",
           messages: [
-            { role: "system", content: "You are a helpful assistant." },
-            { role: "user", content: prompt }
+            {
+              role: "system",
+              content:
+                "You are a smart, natural-sounding assistant for a video study tool. Be helpful, concise, and human. Avoid robotic phrasing."
+            },
+            {
+              role: "user",
+              content: prompt
+            }
           ],
-          temperature: 0.4
+          temperature: 0.5
         })
       }
     );

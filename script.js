@@ -615,6 +615,15 @@ function renderAI() {
     aiMessages.innerHTML = `<div class="empty-state">No questions yet.</div>`;
     return;
   }
+  if (!hasRealTranscript() && !getNotesText() && !getCommentsText()) {
+  aiHistory.push({
+    question,
+    answer: "I don’t have much real content yet. Upload a video with speech or add notes/comments, then I can answer much better."
+  });
+  renderAI();
+  aiInput.value = "";
+  return;
+}
 
   aiHistory.forEach((item) => {
     const questionBox = document.createElement("div");
@@ -984,3 +993,13 @@ renderComments();
 renderAI();
 updateActionButtons();
 commentsTimeLabel.textContent = formatTime(0);
+
+/* ---------------helper----------------- */
+function hasRealTranscript() {
+  const text = getTranscriptText();
+  return (
+    text &&
+    !text.includes("Transcript segment from") &&
+    text.trim().length > 80
+  );
+}
