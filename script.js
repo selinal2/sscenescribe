@@ -20,7 +20,6 @@ const menuDropdown = document.getElementById("menuDropdown");
 const transcriptMoreMenu = document.getElementById("transcriptMoreMenu");
 
 const VERCEL_AI_URL = "https://sscenescribe.vercel.app/api/ask";
-const VERCEL_TRANSCRIBE_URL = "https://sscenescribe.vercel.app/api/transcribe";
 
 let transcript = [
   { start: 0, end: 11, text: "Intro section of the video begins here." },
@@ -44,36 +43,18 @@ let quizScore = 0;
 let answeredQuestions = [];
 let feedbackByQuestion = [];
 
-/* -------------------------------- */
-/* helpers */
-/* -------------------------------- */
+/* -------------------- helpers -------------------- */
 
 function formatTime(seconds) {
   const safeSeconds = Math.floor(seconds || 0);
   const hours = Math.floor(safeSeconds / 3600);
   const mins = Math.floor((safeSeconds % 3600) / 60);
   const secs = safeSeconds % 60;
-
-  return `${hours}:${mins.toString().padStart(2, "0")}:${secs
-    .toString()
-    .padStart(2, "0")}`;
-}
-
-function setButtonState(button, hasContent, generateLabel, regenerateLabel) {
-  button.textContent = hasContent ? regenerateLabel : generateLabel;
-  button.title = hasContent ? "Regenerate" : "Generate";
-  button.setAttribute("aria-label", hasContent ? "Regenerate" : "Generate");
-}
-
-function updateActionButtons() {
-  setButtonState(summaryActionButton, hasSummary, "+", "↻");
-  setButtonState(takeawaysActionButton, hasTakeaways, "+", "↻");
-  setButtonState(aiActionButton, hasAIResponse, "+", "↻");
+  return `${hours}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
 
 function getTranscriptText() {
   if (!transcript.length) return "No transcript available.";
-
   return transcript
     .map((seg) => `${formatTime(seg.start)} - ${formatTime(seg.end)} ${seg.text}`)
     .join("\n");
@@ -85,7 +66,6 @@ function getNotesText() {
 
 function getCommentsText() {
   if (!comments.length) return "No comments.";
-
   return comments
     .map((comment) => `${formatTime(comment.time)} - ${comment.text}`)
     .join("\n");
@@ -106,56 +86,28 @@ async function callAI(mode, extra = {}) {
     })
   });
 
-  let data = {};
-  try {
-    data = await response.json();
-  } catch {
-    data = {};
-  }
+  const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(data.error || `Request failed with status ${response.status}`);
+    throw new Error(data.error || "AI request failed");
   }
 
   return data;
 }
 
-function splitTranscriptTextIntoSegments(fullText, duration = 0, segmentSeconds = 11) {
-  const cleaned = (fullText || "").trim();
-  if (!cleaned) return [];
-
-  const chunks = cleaned
-    .split(/(?<=[.!?])\s+/)
-    .map((part) => part.trim())
-    .filter(Boolean);
-
-  if (!chunks.length) {
-    return [
-      {
-        start: 0,
-        end: Math.max(segmentSeconds, Math.floor(duration) || segmentSeconds),
-        text: cleaned
-      }
-    ];
-  }
-
-  const totalDuration = Math.max(Math.floor(duration) || chunks.length * segmentSeconds, chunks.length * 3);
-  const approxPerChunk = Math.max(segmentSeconds, Math.floor(totalDuration / chunks.length));
-
-  return chunks.map((text, index) => {
-    const start = index * approxPerChunk;
-    const end = Math.min(start + approxPerChunk, totalDuration);
-    return {
-      start,
-      end,
-      text
-    };
-  });
+function setButtonState(button, hasContent, generateLabel, regenerateLabel) {
+  button.textContent = hasContent ? regenerateLabel : generateLabel;
+  button.title = hasContent ? "Regenerate" : "Generate";
+  button.setAttribute("aria-label", hasContent ? "Regenerate" : "Generate");
 }
 
-/* -------------------------------- */
-/* menu */
-/* -------------------------------- */
+function updateActionButtons() {
+  setButtonState(summaryActionButton, hasSummary, "+", "↻");
+  setButtonState(takeawaysActionButton, hasTakeaways, "+", "↻");
+  setButtonState(aiActionButton, hasAIResponse, "+", "↻");
+}
+
+/* -------------------- menu -------------------- */
 
 function toggleMenu() {
   menuDropdown.classList.toggle("open");
@@ -205,9 +157,7 @@ document.addEventListener("click", (e) => {
   }
 });
 
-/* -------------------------------- */
-/* tabs */
-/* -------------------------------- */
+/* -------------------- tabs -------------------- */
 
 function switchTab(tabId, clickedButton = null) {
   const allTabs = document.querySelectorAll(".tab-content");
@@ -244,9 +194,7 @@ function switchTab(tabId, clickedButton = null) {
   }
 }
 
-/* -------------------------------- */
-/* transcript */
-/* -------------------------------- */
+/* -------------------- transcript -------------------- */
 
 function renderTranscript() {
   transcriptContainer.innerHTML = "";
@@ -279,6 +227,32 @@ function renderTranscript() {
     item.appendChild(text);
     transcriptContainer.appendChild(item);
   });
+}
+
+function generateTranscriptFromDuration(duration) {
+  const segments = [];
+  const step = 11;
+  const roundedDuration = Math.floor(duration || 0);
+
+  for (let start = 0; start < roundedDuration; start += step) {
+    const end = Math.min(start + step, roundedDuration);
+    segments.push({
+      start,
+      end,
+      text: `Transcript segment from ${formatTime(start)} to ${formatTime(end)}.`
+    });
+  }
+
+  if (segments.length === 0) {
+    segments.push({
+      start: 0,
+      end: 11,
+      text: "Transcript segment from 0:00:00 to 0:00:11."
+    });
+  }
+
+  transcript = segments;
+  renderTranscript();
 }
 
 function scrollTranscriptIntoView(activeElement) {
@@ -319,85 +293,6 @@ function updateTranscriptHighlight() {
   }
 }
 
-async function transcribeUploadedFile(file) {
-  const formData = new FormData();
-  formData.append("file", file);
-  formData.append("model", "whisper-large-v3-turbo");
-  formData.append("response_format", "verbose_json");
-  formData.append("timestamp_granularities[]", "segment");
-
-  const response = await fetch(VERCEL_TRANSCRIBE_URL, {
-    method: "POST",
-    body: formData
-  });
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data.error || `Transcription failed with status ${response.status}`);
-  }
-
-  return data;
-}
-
-
-function applyTranscriptionResult(data, duration) {
-  const segments = Array.isArray(data.segments) ? data.segments : [];
-
-  if (segments.length) {
-    transcript = segments.map((segment, index) => ({
-      start: Number(segment.start ?? index * 11),
-      end: Number(
-        segment.end ??
-          Math.min(
-            (Number(segment.start ?? index * 11) + 11),
-            Math.floor(duration || Number(segment.start ?? 0) + 11)
-          )
-      ),
-      text: (segment.text || "").trim() || `Segment ${index + 1}`
-    }));
-  } else {
-    transcript = splitTranscriptTextIntoSegments(data.text || "", duration, 11);
-  }
-
-  renderTranscript();
-}
-
-function retranscribeFile() {
-  closeTranscriptMoreMenu();
-
-  const currentSource = video.currentSrc || video.src;
-  if (!currentSource || currentSource.startsWith("https://")) {
-    alert("Retranscribe works best after uploading your own file again.");
-    return;
-  }
-
-  alert("Please re-upload the file to retranscribe it.");
-}
-
-function renameTranscript() {
-  closeTranscriptMoreMenu();
-  const newName = prompt("Rename transcript:", `${videoTitle.textContent} Transcript`);
-  if (!newName) return;
-  videoTitle.textContent = newName;
-}
-
-function moveTranscript() {
-  closeTranscriptMoreMenu();
-  alert("Move feature coming soon.");
-}
-
-function deleteOriginalFile() {
-  closeTranscriptMoreMenu();
-  alert("Delete original file feature coming soon.");
-}
-
-function deleteTranscript() {
-  closeTranscriptMoreMenu();
-  transcript = [];
-  renderTranscript();
-}
-
 function exportTranscript() {
   const transcriptText = transcript
     .map((seg) => `${formatTime(seg.start)} - ${formatTime(seg.end)}\n${seg.text}`)
@@ -432,9 +327,37 @@ function shareTranscript() {
   navigator.clipboard.writeText(text).catch(() => {});
 }
 
-/* -------------------------------- */
-/* comments */
-/* -------------------------------- */
+function retranscribeFile() {
+  closeTranscriptMoreMenu();
+  if (!isNaN(video.duration)) {
+    generateTranscriptFromDuration(video.duration);
+  }
+}
+
+function renameTranscript() {
+  closeTranscriptMoreMenu();
+  const newName = prompt("Rename transcript:", `${videoTitle.textContent} Transcript`);
+  if (!newName) return;
+  videoTitle.textContent = newName;
+}
+
+function moveTranscript() {
+  closeTranscriptMoreMenu();
+  alert("Move feature coming soon.");
+}
+
+function deleteOriginalFile() {
+  closeTranscriptMoreMenu();
+  alert("Delete original file feature coming soon.");
+}
+
+function deleteTranscript() {
+  closeTranscriptMoreMenu();
+  transcript = [];
+  renderTranscript();
+}
+
+/* -------------------- comments -------------------- */
 
 function createCommentElement(comment) {
   const commentDiv = document.createElement("div");
@@ -510,9 +433,7 @@ function deleteComment(commentId) {
   renderComments();
 }
 
-/* -------------------------------- */
-/* notes */
-/* -------------------------------- */
+/* -------------------- notes -------------------- */
 
 function saveNoteDoc() {
   if (saveButtonTimeout) {
@@ -528,9 +449,7 @@ function saveNoteDoc() {
   }, 2000);
 }
 
-/* -------------------------------- */
-/* summary */
-/* -------------------------------- */
+/* -------------------- summary -------------------- */
 
 async function generateSummary() {
   summaryElement.textContent = "Generating summary...";
@@ -541,7 +460,7 @@ async function generateSummary() {
     hasSummary = true;
     updateActionButtons();
   } catch (error) {
-    summaryElement.textContent = error.message || "Could not generate summary.";
+    summaryElement.textContent = "Could not generate summary.";
   }
 }
 
@@ -557,9 +476,7 @@ function handleSummaryAction() {
   }
 }
 
-/* -------------------------------- */
-/* takeaways */
-/* -------------------------------- */
+/* -------------------- takeaways -------------------- */
 
 function formatTakeawaysFromAI(takeaways) {
   if (Array.isArray(takeaways)) {
@@ -584,7 +501,7 @@ async function generateTakeaways() {
     hasTakeaways = true;
     updateActionButtons();
   } catch (error) {
-    takeawaysElement.textContent = error.message || "Could not generate takeaways.";
+    takeawaysElement.textContent = "Could not generate takeaways.";
   }
 }
 
@@ -600,9 +517,7 @@ function handleTakeawaysAction() {
   }
 }
 
-/* -------------------------------- */
-/* ai chat */
-/* -------------------------------- */
+/* -------------------- ai chat -------------------- */
 
 function renderAI() {
   aiMessages.innerHTML = "";
@@ -611,15 +526,6 @@ function renderAI() {
     aiMessages.innerHTML = `<div class="empty-state">No questions yet.</div>`;
     return;
   }
-  if (!hasRealTranscript() && !getNotesText() && !getCommentsText()) {
-  aiHistory.push({
-    question,
-    answer: "I don’t have much real content yet. Upload a video with speech or add notes/comments, then I can answer much better."
-  });
-  renderAI();
-  aiInput.value = "";
-  return;
-}
 
   aiHistory.forEach((item) => {
     const questionBox = document.createElement("div");
@@ -670,33 +576,7 @@ async function askAI() {
   aiInput.value = "";
 
   try {
-    const response = await fetch(VERCEL_AI_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        mode: "chat",
-        question,
-        transcript: getTranscriptText(),
-        notes: getNotesText(),
-        comments: getCommentsText()
-      })
-    });
-
-    let data = {};
-    try {
-      data = await response.json();
-    } catch {
-      data = {};
-    }
-
-    if (!response.ok) {
-      aiHistory[aiHistory.length - 1].answer =
-        data.error || `Request failed with status ${response.status}`;
-      renderAI();
-      return;
-    }
+    const data = await callAI("chat", { question });
 
     aiHistory[aiHistory.length - 1].answer =
       data.answer || "No response.";
@@ -705,8 +585,7 @@ async function askAI() {
     updateActionButtons();
     renderAI();
   } catch (error) {
-    aiHistory[aiHistory.length - 1].answer =
-      error.message || "Error connecting to AI.";
+    aiHistory[aiHistory.length - 1].answer = "Error connecting to AI.";
     renderAI();
   }
 }
@@ -730,9 +609,7 @@ function regenerateAI() {
   askAI();
 }
 
-/* -------------------------------- */
-/* quiz */
-/* -------------------------------- */
+/* -------------------- quiz -------------------- */
 
 function getImprovementAreas() {
   const wrongTopics = feedbackByQuestion
@@ -897,13 +774,11 @@ async function generateQuiz() {
 
     renderCurrentQuizQuestion();
   } catch (error) {
-    quizContainer.innerHTML = `<div class="empty-state">${error.message || "Could not generate quiz."}</div>`;
+    quizContainer.innerHTML = `<div class="empty-state">Could not generate quiz.</div>`;
   }
 }
 
-/* -------------------------------- */
-/* events */
-/* -------------------------------- */
+/* -------------------- events -------------------- */
 
 aiInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
@@ -927,10 +802,11 @@ video.addEventListener("timeupdate", () => {
 video.addEventListener("loadedmetadata", () => {
   if (!isNaN(video.duration)) {
     videoLength.textContent = formatTime(video.duration);
+    generateTranscriptFromDuration(video.duration);
   }
 });
 
-videoUpload.addEventListener("change", async (event) => {
+videoUpload.addEventListener("change", (event) => {
   const file = event.target.files[0];
   if (!file) return;
 
@@ -948,54 +824,18 @@ videoUpload.addEventListener("change", async (event) => {
   videoTitle.textContent = cleanName;
   videoLength.textContent = "0:00:00";
 
-  summaryElement.textContent = "No summary yet.";
-  takeawaysElement.textContent = "No takeaways yet.";
-  hasSummary = false;
-  hasTakeaways = false;
-  updateActionButtons();
-
-  transcript = [];
-  renderTranscript();
-  transcriptContainer.innerHTML = `<div class="empty-state">Transcribing uploaded video...</div>`;
-
-  try {
-    await new Promise((resolve) => {
-      video.onloadedmetadata = () => {
-        videoLength.textContent = formatTime(video.duration);
-        resolve();
-      };
-    });
-
-    const data = await transcribeUploadedFile(file);
-    applyTranscriptionResult(data, video.duration);
-
-    if (!transcript.length) {
-      transcriptContainer.innerHTML = `<div class="empty-state">No transcript returned.</div>`;
-    }
-  } catch (error) {
-    transcript = [];
-    transcriptContainer.innerHTML = `
-      <div class="empty-state">${error.message || "Transcription failed."}</div>
-    `;
-  }
+  video.onloadedmetadata = () => {
+    videoLength.textContent = formatTime(video.duration);
+    generateTranscriptFromDuration(video.duration);
+    video.currentTime = 0;
+    updateTranscriptHighlight();
+  };
 });
 
-/* -------------------------------- */
-/* init */
-/* -------------------------------- */
+/* -------------------- init -------------------- */
 
 renderTranscript();
 renderComments();
 renderAI();
 updateActionButtons();
 commentsTimeLabel.textContent = formatTime(0);
-
-/* ---------------helper----------------- */
-function hasRealTranscript() {
-  const text = getTranscriptText();
-  return (
-    text &&
-    !text.includes("Transcript segment from") &&
-    text.trim().length > 80
-  );
-}
