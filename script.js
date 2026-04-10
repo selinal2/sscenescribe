@@ -20,6 +20,9 @@ const menuDropdown = document.getElementById("menuDropdown");
 const transcriptMoreMenu = document.getElementById("transcriptMoreMenu");
 
 const VERCEL_AI_URL = "https://sscenescribe.vercel.app/api/ask";
+const VERCEL_TRANSCRIBE_URL = "https://sscenescribe.vercel.app/api/transcribe";
+
+let currentUploadedFile = null;
 
 let transcript = [
   { start: 0, end: 11, text: "Intro section of the video begins here." },
@@ -28,7 +31,7 @@ let transcript = [
   { start: 33, end: 44, text: "More detail is added in this part." },
   { start: 44, end: 55, text: "The video moves toward a closing idea here." }
 ];
-let currentUploadedFile = null;
+
 let comments = [];
 let aiHistory = [];
 let hasSummary = false;
@@ -43,7 +46,7 @@ let quizScore = 0;
 let answeredQuestions = [];
 let feedbackByQuestion = [];
 
-/* -------------------- helpers -------------------- */
+/* ---------------- helpers ---------------- */
 
 function formatTime(seconds) {
   const safeSeconds = Math.floor(seconds || 0);
@@ -51,6 +54,18 @@ function formatTime(seconds) {
   const mins = Math.floor((safeSeconds % 3600) / 60);
   const secs = safeSeconds % 60;
   return `${hours}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+}
+
+function setButtonState(button, hasContent, generateLabel, regenerateLabel) {
+  button.textContent = hasContent ? regenerateLabel : generateLabel;
+  button.title = hasContent ? "Regenerate" : "Generate";
+  button.setAttribute("aria-label", hasContent ? "Regenerate" : "Generate");
+}
+
+function updateActionButtons() {
+  setButtonState(summaryActionButton, hasSummary, "+", "↻");
+  setButtonState(takeawaysActionButton, hasTakeaways, "+", "↻");
+  setButtonState(aiActionButton, hasAIResponse, "+", "↻");
 }
 
 function getTranscriptText() {
@@ -71,6 +86,37 @@ function getCommentsText() {
     .join("\n");
 }
 
+function getSummaryText() {
+  return summaryElement ? summaryElement.textContent.trim() : "";
+}
+
+function getTakeawaysText() {
+  return takeawaysElement ? takeawaysElement.textContent.trim() : "";
+}
+
+function getQuizText() {
+  if (!currentQuiz.length) return "No quiz yet.";
+
+  return currentQuiz
+    .map((item, index) => {
+      return [
+        `Question ${index + 1}: ${item.question}`,
+        `Options: ${item.options.join(" | ")}`,
+        `Correct Answer: ${item.correctAnswer}`,
+        `Explanation: ${item.explanation}`,
+        `Topic: ${item.topic}`
+      ].join("\n");
+    })
+    .join("\n\n");
+}
+
+function getVideoMetaText() {
+  return [
+    `Title: ${videoTitle ? videoTitle.textContent.trim() : ""}`,
+    `Length: ${videoLength ? videoLength.textContent.trim() : ""}`
+  ].join("\n");
+}
+
 async function callAI(mode, extra = {}) {
   const response = await fetch(VERCEL_AI_URL, {
     method: "POST",
@@ -82,32 +128,59 @@ async function callAI(mode, extra = {}) {
       transcript: getTranscriptText(),
       notes: getNotesText(),
       comments: getCommentsText(),
+      summary: getSummaryText(),
+      takeaways: getTakeawaysText(),
+      quiz: getQuizText(),
+      videoMeta: getVideoMetaText(),
       ...extra
     })
   });
 
-  const data = await response.json();
+  let data = {};
+  try {
+    data = await response.json();
+  } catch {
+    data = {};
+  }
 
   if (!response.ok) {
-    throw new Error(data.error || "AI request failed");
+    throw new Error(data.error || `Request failed with status ${response.status}`);
   }
 
   return data;
 }
 
-function setButtonState(button, hasContent, generateLabel, regenerateLabel) {
-  button.textContent = hasContent ? regenerateLabel : generateLabel;
-  button.title = hasContent ? "Regenerate" : "Generate";
-  button.setAttribute("aria-label", hasContent ? "Regenerate" : "Generate");
+function splitTranscriptTextIntoSegments(fullText, duration = 0, segmentSeconds = 11) {
+  const cleaned = (fullText || "").trim();
+  if (!cleaned) return [];
+
+  const chunks = cleaned
+    .split(/(?<=[.!?])\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (!chunks.length) {
+    return [{
+      start: 0,
+      end: Math.max(segmentSeconds, Math.floor(duration) || segmentSeconds),
+      text: cleaned
+    }];
+  }
+
+  const totalDuration = Math.max(
+    Math.floor(duration) || chunks.length * segmentSeconds,
+    chunks.length * 3
+  );
+  const approxPerChunk = Math.max(segmentSeconds, Math.floor(totalDuration / chunks.length));
+
+  return chunks.map((text, index) => {
+    const start = index * approxPerChunk;
+    const end = Math.min(start + approxPerChunk, totalDuration);
+    return { start, end, text };
+  });
 }
 
-function updateActionButtons() {
-  setButtonState(summaryActionButton, hasSummary, "+", "↻");
-  setButtonState(takeawaysActionButton, hasTakeaways, "+", "↻");
-  setButtonState(aiActionButton, hasAIResponse, "+", "↻");
-}
-
-/* -------------------- menu -------------------- */
+/* ---------------- menu ---------------- */
 
 function toggleMenu() {
   menuDropdown.classList.toggle("open");
@@ -157,49 +230,48 @@ document.addEventListener("click", (e) => {
   }
 });
 
-/* -------------------- tabs -------------------- */
+/* ---------------- tabs ---------------- */
 
 function switchTab(tabId, clickedButton = null) {
-  const allTabs = document.querySelectorAll(".tab-content");
-  const allButtons = document.querySelectorAll(".tab-button");
+  const tabMap = {
+    transcript: "transcriptTab",
+    notes: "notesTab",
+    comments: "commentsTab",
+    ai: "aiTab",
+    quiz: "quizTab"
+  };
 
-  allTabs.forEach((tab) => tab.classList.remove("active"));
-  allButtons.forEach((btn) => btn.classList.remove("active"));
+  document.querySelectorAll(".tab-content").forEach((tab) => {
+    tab.classList.remove("active");
+  });
+
+  document.querySelectorAll(".tab-button").forEach((button) => {
+    button.classList.remove("active");
+  });
+
+  const targetId = tabMap[tabId];
+  const targetTab = document.getElementById(targetId);
+
+  if (targetTab) {
+    targetTab.classList.add("active");
+  }
 
   if (clickedButton) {
     clickedButton.classList.add("active");
   } else {
-    const map = {
-      transcript: 0,
-      notes: 1,
-      comments: 2,
-      ai: 3,
-      quiz: 4
-    };
-    if (map[tabId] !== undefined) {
-      allButtons[map[tabId]].classList.add("active");
+    const matchingButton = document.querySelector(`.tab-button[data-tab="${tabId}"]`);
+    if (matchingButton) {
+      matchingButton.classList.add("active");
     }
-  }
-
-  if (tabId === "transcript") {
-    document.getElementById("transcriptTab").classList.add("active");
-  } else if (tabId === "notes") {
-    document.getElementById("notesTab").classList.add("active");
-  } else if (tabId === "comments") {
-    document.getElementById("commentsTab").classList.add("active");
-  } else if (tabId === "ai") {
-    document.getElementById("aiTab").classList.add("active");
-  } else if (tabId === "quiz") {
-    document.getElementById("quizTab").classList.add("active");
   }
 }
 
-/* -------------------- transcript -------------------- */
+/* ---------------- transcript ---------------- */
 
 function renderTranscript() {
   transcriptContainer.innerHTML = "";
 
-  if (transcript.length === 0) {
+  if (!transcript.length) {
     transcriptContainer.innerHTML = `<div class="empty-state">No transcript yet.</div>`;
     return;
   }
@@ -227,32 +299,6 @@ function renderTranscript() {
     item.appendChild(text);
     transcriptContainer.appendChild(item);
   });
-}
-
-function generateTranscriptFromDuration(duration) {
-  const segments = [];
-  const step = 11;
-  const roundedDuration = Math.floor(duration || 0);
-
-  for (let start = 0; start < roundedDuration; start += step) {
-    const end = Math.min(start + step, roundedDuration);
-    segments.push({
-      start,
-      end,
-      text: `Transcript segment from ${formatTime(start)} to ${formatTime(end)}.`
-    });
-  }
-
-  if (segments.length === 0) {
-    segments.push({
-      start: 0,
-      end: 11,
-      text: "Transcript segment from 0:00:00 to 0:00:11."
-    });
-  }
-
-  transcript = segments;
-  renderTranscript();
 }
 
 function scrollTranscriptIntoView(activeElement) {
@@ -293,6 +339,86 @@ function updateTranscriptHighlight() {
   }
 }
 
+async function transcribeCurrentFile(file) {
+  transcriptContainer.innerHTML = `<div class="empty-state">Transcribing...</div>`;
+
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("model", "whisper-large-v3-turbo");
+  formData.append("response_format", "verbose_json");
+  formData.append("timestamp_granularities[]", "segment");
+
+  const response = await fetch(VERCEL_TRANSCRIBE_URL, {
+    method: "POST",
+    body: formData
+  });
+
+  let data = {};
+  try {
+    data = await response.json();
+  } catch {
+    data = {};
+  }
+
+  if (!response.ok) {
+    throw new Error(data.error || `Transcription failed with status ${response.status}`);
+  }
+
+  if (Array.isArray(data.segments) && data.segments.length > 0) {
+    transcript = data.segments.map((seg, index) => ({
+      start: Number(seg.start ?? index * 11),
+      end: Number(seg.end ?? (Number(seg.start ?? index * 11) + 11)),
+      text: (seg.text || "").trim() || `Segment ${index + 1}`
+    }));
+  } else if (data.text) {
+    transcript = splitTranscriptTextIntoSegments(data.text, video.duration, 11);
+  } else {
+    throw new Error("No transcript text returned.");
+  }
+
+  renderTranscript();
+}
+
+async function retranscribeFile() {
+  closeTranscriptMoreMenu();
+
+  if (!currentUploadedFile) {
+    alert("Please upload a file first.");
+    return;
+  }
+
+  try {
+    await transcribeCurrentFile(currentUploadedFile);
+  } catch (error) {
+    transcriptContainer.innerHTML = `
+      <div class="empty-state">${error.message || "Retranscription failed."}</div>
+    `;
+  }
+}
+
+function renameTranscript() {
+  closeTranscriptMoreMenu();
+  const newName = prompt("Rename transcript:", `${videoTitle.textContent} Transcript`);
+  if (!newName) return;
+  videoTitle.textContent = newName;
+}
+
+function moveTranscript() {
+  closeTranscriptMoreMenu();
+  alert("Move feature coming soon.");
+}
+
+function deleteOriginalFile() {
+  closeTranscriptMoreMenu();
+  alert("Delete original file feature coming soon.");
+}
+
+function deleteTranscript() {
+  closeTranscriptMoreMenu();
+  transcript = [];
+  renderTranscript();
+}
+
 function exportTranscript() {
   const transcriptText = transcript
     .map((seg) => `${formatTime(seg.start)} - ${formatTime(seg.end)}\n${seg.text}`)
@@ -327,37 +453,7 @@ function shareTranscript() {
   navigator.clipboard.writeText(text).catch(() => {});
 }
 
-function retranscribeFile() {
-  closeTranscriptMoreMenu();
-  if (!isNaN(video.duration)) {
-    generateTranscriptFromDuration(video.duration);
-  }
-}
-
-function renameTranscript() {
-  closeTranscriptMoreMenu();
-  const newName = prompt("Rename transcript:", `${videoTitle.textContent} Transcript`);
-  if (!newName) return;
-  videoTitle.textContent = newName;
-}
-
-function moveTranscript() {
-  closeTranscriptMoreMenu();
-  alert("Move feature coming soon.");
-}
-
-function deleteOriginalFile() {
-  closeTranscriptMoreMenu();
-  alert("Delete original file feature coming soon.");
-}
-
-function deleteTranscript() {
-  closeTranscriptMoreMenu();
-  transcript = [];
-  renderTranscript();
-}
-
-/* -------------------- comments -------------------- */
+/* ---------------- comments ---------------- */
 
 function createCommentElement(comment) {
   const commentDiv = document.createElement("div");
@@ -402,7 +498,7 @@ function createCommentElement(comment) {
 function renderComments() {
   commentsList.innerHTML = "";
 
-  if (comments.length === 0) {
+  if (!comments.length) {
     commentsList.innerHTML = `<div class="empty-state">No comments yet.</div>`;
     return;
   }
@@ -433,7 +529,7 @@ function deleteComment(commentId) {
   renderComments();
 }
 
-/* -------------------- notes -------------------- */
+/* ---------------- notes ---------------- */
 
 function saveNoteDoc() {
   if (saveButtonTimeout) {
@@ -449,7 +545,7 @@ function saveNoteDoc() {
   }, 2000);
 }
 
-/* -------------------- summary -------------------- */
+/* ---------------- summary ---------------- */
 
 async function generateSummary() {
   summaryElement.textContent = "Generating summary...";
@@ -460,7 +556,7 @@ async function generateSummary() {
     hasSummary = true;
     updateActionButtons();
   } catch (error) {
-    summaryElement.textContent = "Could not generate summary.";
+    summaryElement.textContent = error.message || "Could not generate summary.";
   }
 }
 
@@ -476,7 +572,7 @@ function handleSummaryAction() {
   }
 }
 
-/* -------------------- takeaways -------------------- */
+/* ---------------- takeaways ---------------- */
 
 function formatTakeawaysFromAI(takeaways) {
   if (Array.isArray(takeaways)) {
@@ -495,13 +591,11 @@ async function generateTakeaways() {
 
   try {
     const data = await callAI("takeaways");
-    takeawaysElement.textContent = formatTakeawaysFromAI(
-      data.takeaways || data.answer
-    );
+    takeawaysElement.textContent = formatTakeawaysFromAI(data.takeaways || data.answer);
     hasTakeaways = true;
     updateActionButtons();
   } catch (error) {
-    takeawaysElement.textContent = "Could not generate takeaways.";
+    takeawaysElement.textContent = error.message || "Could not generate takeaways.";
   }
 }
 
@@ -517,12 +611,12 @@ function handleTakeawaysAction() {
   }
 }
 
-/* -------------------- ai chat -------------------- */
+/* ---------------- ai chat ---------------- */
 
 function renderAI() {
   aiMessages.innerHTML = "";
 
-  if (aiHistory.length === 0) {
+  if (!aiHistory.length) {
     aiMessages.innerHTML = `<div class="empty-state">No questions yet.</div>`;
     return;
   }
@@ -576,16 +670,46 @@ async function askAI() {
   aiInput.value = "";
 
   try {
-    const data = await callAI("chat", { question });
+    const response = await fetch(VERCEL_AI_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        mode: "chat",
+        question,
+        transcript: getTranscriptText(),
+        notes: getNotesText(),
+        comments: getCommentsText(),
+        summary: getSummaryText(),
+        takeaways: getTakeawaysText(),
+        quiz: getQuizText(),
+        videoMeta: getVideoMetaText()
+      })
+    });
 
-    aiHistory[aiHistory.length - 1].answer =
-      data.answer || "No response.";
+    let data = {};
+    try {
+      data = await response.json();
+    } catch {
+      data = {};
+    }
+
+    if (!response.ok) {
+      aiHistory[aiHistory.length - 1].answer =
+        data.error || `Request failed with status ${response.status}`;
+      renderAI();
+      return;
+    }
+
+    aiHistory[aiHistory.length - 1].answer = data.answer || "No response.";
 
     hasAIResponse = true;
     updateActionButtons();
     renderAI();
   } catch (error) {
-    aiHistory[aiHistory.length - 1].answer = "Error connecting to AI.";
+    aiHistory[aiHistory.length - 1].answer =
+      error.message || "Error connecting to AI.";
     renderAI();
   }
 }
@@ -600,7 +724,7 @@ function handleAIAction() {
 }
 
 function regenerateAI() {
-  if (aiHistory.length === 0) return;
+  if (!aiHistory.length) return;
 
   const latestQuestion = aiHistory[aiHistory.length - 1].question;
   aiInput.value = latestQuestion;
@@ -609,7 +733,7 @@ function regenerateAI() {
   askAI();
 }
 
-/* -------------------- quiz -------------------- */
+/* ---------------- quiz ---------------- */
 
 function getImprovementAreas() {
   const wrongTopics = feedbackByQuestion
@@ -620,12 +744,7 @@ function getImprovementAreas() {
     .filter(Boolean);
 
   const uniqueTopics = [...new Set(wrongTopics)];
-
-  if (uniqueTopics.length === 0) {
-    return ["You did well across all areas in this quiz."];
-  }
-
-  return uniqueTopics;
+  return uniqueTopics.length ? uniqueTopics : ["You did well across all areas in this quiz."];
 }
 
 function finishQuiz() {
@@ -635,9 +754,11 @@ function finishQuiz() {
     <div class="quiz-finished">
       <div class="quiz-score">You got ${quizScore} / ${currentQuiz.length}</div>
       <div class="quiz-summary-text">
-        ${quizScore === currentQuiz.length
-          ? "Great job. You answered every question correctly."
-          : "Here’s what you should improve on based on the questions you missed:"}
+        ${
+          quizScore === currentQuiz.length
+            ? "Great job. You answered every question correctly."
+            : "Here’s what you should improve on based on the questions you missed:"
+        }
       </div>
       <ul class="improve-list">
         ${improveAreas.map((item) => `<li>${item}</li>`).join("")}
@@ -647,7 +768,7 @@ function finishQuiz() {
 }
 
 function renderCurrentQuizQuestion() {
-  if (currentQuiz.length === 0) {
+  if (!currentQuiz.length) {
     quizContainer.innerHTML = `<div class="empty-state">No quiz yet.</div>`;
     return;
   }
@@ -664,44 +785,42 @@ function renderCurrentQuizQuestion() {
       <div class="quiz-question">${item.question}</div>
 
       <div class="quiz-options">
-        ${item.options
-          .map((option, index) => {
-            let extraClass = "";
-            if (alreadyAnswered && savedFeedback) {
-              if (index === savedFeedback.selectedIndex && savedFeedback.isCorrect) {
-                extraClass = "selected-correct";
-              } else if (index === savedFeedback.selectedIndex && !savedFeedback.isCorrect) {
-                extraClass = "selected-wrong";
-              }
+        ${item.options.map((option, index) => {
+          let extraClass = "";
+          if (alreadyAnswered && savedFeedback) {
+            if (index === savedFeedback.selectedIndex && savedFeedback.isCorrect) {
+              extraClass = "selected-correct";
+            } else if (index === savedFeedback.selectedIndex && !savedFeedback.isCorrect) {
+              extraClass = "selected-wrong";
             }
+          }
 
-            return `
-              <button
-                class="quiz-option ${extraClass}"
-                onclick="handleQuizAnswer(${index})"
-                ${alreadyAnswered ? "disabled" : ""}
-              >
-                ${String.fromCharCode(65 + index)}. ${option}
-              </button>
-            `;
-          })
-          .join("")}
+          return `
+            <button
+              class="quiz-option ${extraClass}"
+              onclick="handleQuizAnswer(${index})"
+              ${alreadyAnswered ? "disabled" : ""}
+            >
+              ${String.fromCharCode(65 + index)}. ${option}
+            </button>
+          `;
+        }).join("")}
       </div>
 
       <div id="quizFeedbackArea">
         ${
           savedFeedback
             ? `
-          <div class="quiz-feedback">
-            <div class="quiz-feedback-title ${savedFeedback.isCorrect ? "correct" : "wrong"}">
-              ${savedFeedback.isCorrect ? "Correct" : "Wrong"}
-            </div>
-            <div class="quiz-feedback-text">
-              ${!savedFeedback.isCorrect ? `<strong>Correct answer:</strong> ${item.correctAnswer}<br><br>` : ""}
-              ${item.explanation}
-            </div>
-          </div>
-        `
+              <div class="quiz-feedback">
+                <div class="quiz-feedback-title ${savedFeedback.isCorrect ? "correct" : "wrong"}">
+                  ${savedFeedback.isCorrect ? "Correct" : "Wrong"}
+                </div>
+                <div class="quiz-feedback-text">
+                  ${!savedFeedback.isCorrect ? `<strong>Correct answer:</strong> ${item.correctAnswer}<br><br>` : ""}
+                  ${item.explanation}
+                </div>
+              </div>
+            `
             : ""
         }
       </div>
@@ -774,11 +893,11 @@ async function generateQuiz() {
 
     renderCurrentQuizQuestion();
   } catch (error) {
-    quizContainer.innerHTML = `<div class="empty-state">Could not generate quiz.</div>`;
+    quizContainer.innerHTML = `<div class="empty-state">${error.message || "Could not generate quiz."}</div>`;
   }
 }
 
-/* -------------------- events -------------------- */
+/* ---------------- events ---------------- */
 
 aiInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
@@ -802,7 +921,6 @@ video.addEventListener("timeupdate", () => {
 video.addEventListener("loadedmetadata", () => {
   if (!isNaN(video.duration)) {
     videoLength.textContent = formatTime(video.duration);
-    generateTranscriptFromDuration(video.duration);
   }
 });
 
@@ -810,10 +928,7 @@ videoUpload.addEventListener("change", async (event) => {
   const file = event.target.files[0];
   if (!file) return;
 
-  const file = event.target.files[0];
-if (!file) return;
-
-currentUploadedFile = file;
+  currentUploadedFile = file;
 
   const fileURL = URL.createObjectURL(file);
   video.src = fileURL;
@@ -821,106 +936,35 @@ currentUploadedFile = file;
 
   const cleanName = file.name.replace(/\.[^/.]+$/, "");
   videoTitle.textContent = cleanName;
-  transcriptContainer.innerHTML = `<div class="empty-state">Transcribing...</div>`;
+  videoLength.textContent = "0:00:00";
+
+  summaryElement.textContent = "No summary yet.";
+  takeawaysElement.textContent = "No takeaways yet.";
+  hasSummary = false;
+  hasTakeaways = false;
+  updateActionButtons();
 
   try {
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("model", "whisper-large-v3-turbo");
-    formData.append("response_format", "verbose_json");
-    formData.append("timestamp_granularities[]", "segment");
-
-    const response = await fetch("https://sscenescribe.vercel.app/api/transcribe", {
-      method: "POST",
-      body: formData
+    await new Promise((resolve) => {
+      video.onloadedmetadata = () => {
+        videoLength.textContent = formatTime(video.duration);
+        resolve();
+      };
     });
 
-    let data = {};
-    try {
-      data = await response.json();
-    } catch {
-      data = {};
-    }
-
-    if (!response.ok) {
-      throw new Error(data.error || `Transcription failed with status ${response.status}`);
-    }
-
-    if (Array.isArray(data.segments) && data.segments.length > 0) {
-      transcript = data.segments.map((seg, index) => ({
-        start: Number(seg.start ?? index * 11),
-        end: Number(seg.end ?? (Number(seg.start ?? index * 11) + 11)),
-        text: (seg.text || "").trim() || `Segment ${index + 1}`
-      }));
-    } else if (data.text) {
-      transcript = [{
-        start: 0,
-        end: Math.floor(video.duration || 11),
-        text: data.text
-      }];
-    } else {
-      throw new Error("No transcript text returned.");
-    }
-
-    renderTranscript();
+    await transcribeCurrentFile(file);
   } catch (error) {
+    transcript = [];
     transcriptContainer.innerHTML = `
       <div class="empty-state">${error.message || "Transcription failed."}</div>
     `;
-    console.error("Transcription error:", error);
   }
 });
 
-/* -------------------- init -------------------- */
+/* ---------------- init ---------------- */
 
 renderTranscript();
 renderComments();
 renderAI();
 updateActionButtons();
 commentsTimeLabel.textContent = formatTime(0);
-
-
-/* ----------helper functions ---------- */
-async function transcribeCurrentFile(file) {
-  transcriptContainer.innerHTML = `<div class="empty-state">Transcribing...</div>`;
-
-  const formData = new FormData();
-  formData.append("file", file);
-  formData.append("model", "whisper-large-v3-turbo");
-  formData.append("response_format", "verbose_json");
-  formData.append("timestamp_granularities[]", "segment");
-
-  const response = await fetch("https://sscenescribe.vercel.app/api/transcribe", {
-    method: "POST",
-    body: formData
-  });
-
-  let data = {};
-  try {
-    data = await response.json();
-  } catch {
-    data = {};
-  }
-
-  if (!response.ok) {
-    throw new Error(data.error || `Transcription failed with status ${response.status}`);
-  }
-
-  if (Array.isArray(data.segments) && data.segments.length > 0) {
-    transcript = data.segments.map((seg, index) => ({
-      start: Number(seg.start ?? index * 11),
-      end: Number(seg.end ?? (Number(seg.start ?? index * 11) + 11)),
-      text: (seg.text || "").trim() || `Segment ${index + 1}`
-    }));
-  } else if (data.text) {
-    transcript = [{
-      start: 0,
-      end: Math.floor(video.duration || 11),
-      text: data.text
-    }];
-  } else {
-    throw new Error("No transcript text returned.");
-  }
-
-  renderTranscript();
-}

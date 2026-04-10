@@ -119,12 +119,12 @@
         <div class="main-card">
           <div class="tabs-header">
             <div class="tabs">
-              <button class="tab-button active" onclick="switchTab('transcript', this)">Transcript</button>
-              <button class="tab-button" onclick="switchTab('notes', this)">Notes</button>
-              <button class="tab-button" onclick="switchTab('comments', this)">Comments</button>
-              <button class="tab-button" onclick="switchTab('ai', this)">AI Chat</button>
-              <button class="tab-button" onclick="switchTab('quiz', this)">Quiz</button>
-            </div>
+              <button class="tab-button active" data-tab="transcript" onclick="switchTab('transcript', this)">Transcript</button>
+              <button class="tab-button" data-tab="notes" onclick="switchTab('notes', this)">Notes</button>
+              <button class="tab-button" data-tab="comments" onclick="switchTab('comments', this)">Comments</button>
+              <button class="tab-button" data-tab="ai" onclick="switchTab('ai', this)">AI Chat</button>
+              <button class="tab-button" data-tab="quiz" onclick="switchTab('quiz', this)">Quiz</button>
+              </div>
           </div>
 
           <div id="transcriptTab" class="tab-content active">
