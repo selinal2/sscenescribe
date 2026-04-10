@@ -33,7 +33,7 @@ ${comments || "No comments provided."}
 
     if (mode === "chat") {
       prompt = `
-Answer the user's question using the context below.
+Answer the user's question using only the context below when possible.
 If the answer is not in the context, say that clearly.
 
 ${context}
@@ -43,21 +43,43 @@ ${question || ""}
 `;
     } else if (mode === "summary") {
       prompt = `
-Summarize this content in 2 to 4 clear sentences.
+Write a short summary in 2 to 4 sentences using only this context.
 
 ${context}
 `;
     } else if (mode === "takeaways") {
       prompt = `
-Give 3 to 5 key takeaways from this content.
+Give 3 to 5 key takeaways from this context.
 Keep them short and clear.
+Return plain text only.
 
 ${context}
 `;
     } else if (mode === "quiz") {
       prompt = `
-Create 5 multiple choice questions based on this content.
-Each question must have 4 options and clearly state the correct answer.
+Create exactly 10 multiple choice questions using only this context.
+
+Return ONLY valid JSON in this exact shape:
+{
+  "quiz": [
+    {
+      "question": "string",
+      "correctAnswer": "string",
+      "options": ["string", "string", "string", "string"],
+      "explanation": "string",
+      "topic": "string"
+    }
+  ]
+}
+
+Rules:
+- Exactly 10 questions
+- Exactly 4 options per question
+- correctAnswer must be one of the options
+- explanation should be short
+- topic should be short
+- no markdown
+- no text outside the JSON
 
 ${context}
 `;
@@ -65,26 +87,26 @@ ${context}
       return res.status(400).json({ error: "Invalid mode." });
     }
 
-    const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: "llama3-70b-8192",
-        messages: [
-          {
-            role: "user",
-            content: prompt
-          }
-        ],
-        temperature: 0.7
-      })
-    });
+    const groqResponse = await fetch(
+      "https://api.groq.com/openai/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "llama3-70b-8192",
+          messages: [
+            { role: "system", content: "You are a helpful assistant." },
+            { role: "user", content: prompt }
+          ],
+          temperature: 0.4
+        })
+      }
+    );
 
     const data = await groqResponse.json();
-    console.log("Groq raw response:", JSON.stringify(data));
 
     if (!groqResponse.ok) {
       return res.status(groqResponse.status).json({
@@ -113,7 +135,47 @@ ${context}
     }
 
     if (mode === "quiz") {
-      return res.status(200).json({ quiz: text });
+      let parsed = null;
+
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        const match = text.match(/\{[\s\S]*\}/);
+        if (match) {
+          try {
+            parsed = JSON.parse(match[0]);
+          } catch {
+            parsed = null;
+          }
+        }
+      }
+
+      if (!parsed || !Array.isArray(parsed.quiz)) {
+        return res.status(500).json({
+          error: "Quiz response could not be parsed."
+        });
+      }
+
+      const cleanedQuiz = parsed.quiz
+        .filter(
+          (item) =>
+            item &&
+            typeof item.question === "string" &&
+            typeof item.correctAnswer === "string" &&
+            Array.isArray(item.options) &&
+            item.options.length === 4 &&
+            typeof item.explanation === "string" &&
+            typeof item.topic === "string"
+        )
+        .map((item) => ({
+          question: item.question,
+          correctAnswer: item.correctAnswer,
+          options: item.options,
+          explanation: item.explanation,
+          topic: item.topic
+        }));
+
+      return res.status(200).json({ quiz: cleanedQuiz.slice(0, 10) });
     }
   } catch (error) {
     console.error("Groq API error:", error);
