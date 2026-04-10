@@ -166,15 +166,15 @@ body {
   position: absolute;
   top: calc(100% + 10px);
   left: 0;
-  min-width: 190px;
+  min-width: 210px;
   padding: 8px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.97);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.96);
   border: 1px solid var(--border);
-  box-shadow: var(--shadow-strong);
+  box-shadow: 0 18px 40px rgba(110, 76, 154, 0.14);
   display: none;
-  z-index: 20;
-  backdrop-filter: blur(12px);
+  z-index: 30;
+  backdrop-filter: blur(14px);
 }
 
 .menu-dropdown.open {
@@ -186,8 +186,8 @@ body {
   border: none;
   background: transparent;
   text-align: left;
-  padding: 12px;
-  border-radius: 12px;
+  padding: 13px 14px;
+  border-radius: 14px;
   font-family: inherit;
   font-size: 14px;
   font-weight: 700;
@@ -334,7 +334,7 @@ video {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   margin-bottom: 6px;
 }
 
@@ -342,11 +342,6 @@ video {
   font-size: 17px;
   font-weight: 800;
   color: var(--text-heading);
-  align-items: center;
- 
-    margin-top: 5px;
-    margin-bottom: 10px;
-
 }
 
 .compact-content-box {
@@ -418,7 +413,6 @@ video {
   margin: 2px 4px 12px;
 }
 
-.notes-tools-row,
 .quiz-tools-row {
   justify-content: flex-end;
 }
@@ -487,11 +481,12 @@ video {
   width: 320px;
   padding: 10px;
   border-radius: 22px;
-  background: #0a1020;
-  border: 1px solid rgba(95, 114, 160, 0.28);
-  box-shadow: 0 24px 50px rgba(4, 8, 20, 0.45);
+  background: rgba(255, 251, 254, 0.98);
+  border: 1px solid rgba(225, 214, 237, 0.95);
+  box-shadow: 0 22px 48px rgba(123, 88, 170, 0.16);
   display: none;
   z-index: 50;
+  backdrop-filter: blur(14px);
 }
 
 .transcript-more-menu.open {
@@ -503,22 +498,22 @@ video {
   border: none;
   background: transparent;
   text-align: left;
-  padding: 16px 18px;
+  padding: 15px 16px;
   border-radius: 14px;
   font-family: inherit;
   font-size: 15px;
   font-weight: 700;
-  color: #f4f7fb;
+  color: var(--text-heading);
   cursor: pointer;
 }
 
 .transcript-more-menu button:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg-soft-alt);
 }
 
 .transcript-more-menu hr {
   border: none;
-  border-top: 1px solid rgba(133, 148, 182, 0.22);
+  border-top: 1px solid rgba(224, 214, 235, 0.9);
   margin: 8px 0;
 }
 
