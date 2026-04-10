@@ -806,30 +806,51 @@ video.addEventListener("loadedmetadata", () => {
   }
 });
 
-videoUpload.addEventListener("change", (event) => {
+videoUpload.addEventListener("change", async (event) => {
   const file = event.target.files[0];
   if (!file) return;
 
   const fileURL = URL.createObjectURL(file);
-
-  video.pause();
   video.src = fileURL;
   video.load();
 
-  video.muted = false;
-  video.loop = false;
-  video.autoplay = false;
+  videoTitle.textContent = file.name;
+  transcriptContainer.innerHTML = "Transcribing...";
 
-  const cleanName = file.name.replace(/\.[^/.]+$/, "");
-  videoTitle.textContent = cleanName;
-  videoLength.textContent = "0:00:00";
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("model", "whisper-large-v3-turbo");
+    formData.append("response_format", "verbose_json");
+    formData.append("timestamp_granularities[]", "segment");
 
-  video.onloadedmetadata = () => {
-    videoLength.textContent = formatTime(video.duration);
-    generateTranscriptFromDuration(video.duration);
-    video.currentTime = 0;
-    updateTranscriptHighlight();
-  };
+    const response = await fetch(
+      "https://sscenescribe.vercel.app/api/transcribe",
+      {
+        method: "POST",
+        body: formData
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "Transcription failed");
+    }
+
+    // convert segments into your transcript format
+    transcript = data.segments.map((seg) => ({
+      start: seg.start,
+      end: seg.end,
+      text: seg.text
+    }));
+
+    renderTranscript();
+
+  } catch (error) {
+    transcriptContainer.innerHTML = "Transcription failed.";
+    console.error(error);
+  }
 });
 
 /* -------------------- init -------------------- */
