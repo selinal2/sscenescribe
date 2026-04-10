@@ -12,7 +12,17 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { mode, question, transcript, notes, comments } = req.body || {};
+    const {
+  mode,
+  question,
+  transcript,
+  notes,
+  comments,
+  summary,
+  takeaways,
+  quiz,
+  videoMeta
+} = req.body || {};
 
     if (!process.env.GROQ_API_KEY) {
       return res.status(500).json({ error: "Missing GROQ_API_KEY in Vercel." });
@@ -28,14 +38,26 @@ export default async function handler(req, res) {
       safeTranscript.length < 80;
 
     const context = `
+Video Info:
+${videoMeta || "No video metadata provided."}
+
 Transcript:
-${safeTranscript || "No transcript provided."}
+${transcript || "No transcript provided."}
 
 Notes:
-${safeNotes || "No notes provided."}
+${notes || "No notes provided."}
 
 Comments:
-${safeComments || "No comments provided."}
+${comments || "No comments provided."}
+
+Summary:
+${summary || "No summary provided."}
+
+Takeaways:
+${takeaways || "No takeaways provided."}
+
+Quiz:
+${quiz || "No quiz provided."}
 `;
 
     let prompt = "";

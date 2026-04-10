@@ -28,7 +28,7 @@ let transcript = [
   { start: 33, end: 44, text: "More detail is added in this part." },
   { start: 44, end: 55, text: "The video moves toward a closing idea here." }
 ];
-
+let currentUploadedFile = null;
 let comments = [];
 let aiHistory = [];
 let hasSummary = false;
@@ -810,6 +810,11 @@ videoUpload.addEventListener("change", async (event) => {
   const file = event.target.files[0];
   if (!file) return;
 
+  const file = event.target.files[0];
+if (!file) return;
+
+currentUploadedFile = file;
+
   const fileURL = URL.createObjectURL(file);
   video.src = fileURL;
   video.load();
@@ -873,3 +878,49 @@ renderComments();
 renderAI();
 updateActionButtons();
 commentsTimeLabel.textContent = formatTime(0);
+
+
+/* ----------helper functions ---------- */
+async function transcribeCurrentFile(file) {
+  transcriptContainer.innerHTML = `<div class="empty-state">Transcribing...</div>`;
+
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("model", "whisper-large-v3-turbo");
+  formData.append("response_format", "verbose_json");
+  formData.append("timestamp_granularities[]", "segment");
+
+  const response = await fetch("https://sscenescribe.vercel.app/api/transcribe", {
+    method: "POST",
+    body: formData
+  });
+
+  let data = {};
+  try {
+    data = await response.json();
+  } catch {
+    data = {};
+  }
+
+  if (!response.ok) {
+    throw new Error(data.error || `Transcription failed with status ${response.status}`);
+  }
+
+  if (Array.isArray(data.segments) && data.segments.length > 0) {
+    transcript = data.segments.map((seg, index) => ({
+      start: Number(seg.start ?? index * 11),
+      end: Number(seg.end ?? (Number(seg.start ?? index * 11) + 11)),
+      text: (seg.text || "").trim() || `Segment ${index + 1}`
+    }));
+  } else if (data.text) {
+    transcript = [{
+      start: 0,
+      end: Math.floor(video.duration || 11),
+      text: data.text
+    }];
+  } else {
+    throw new Error("No transcript text returned.");
+  }
+
+  renderTranscript();
+}
