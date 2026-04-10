@@ -814,8 +814,9 @@ videoUpload.addEventListener("change", async (event) => {
   video.src = fileURL;
   video.load();
 
-  videoTitle.textContent = file.name;
-  transcriptContainer.innerHTML = "Transcribing...";
+  const cleanName = file.name.replace(/\.[^/.]+$/, "");
+  videoTitle.textContent = cleanName;
+  transcriptContainer.innerHTML = `<div class="empty-state">Transcribing...</div>`;
 
   try {
     const formData = new FormData();
@@ -824,32 +825,44 @@ videoUpload.addEventListener("change", async (event) => {
     formData.append("response_format", "verbose_json");
     formData.append("timestamp_granularities[]", "segment");
 
-    const response = await fetch(
-      "https://sscenescribe.vercel.app/api/transcribe",
-      {
-        method: "POST",
-        body: formData
-      }
-    );
+    const response = await fetch("https://sscenescribe.vercel.app/api/transcribe", {
+      method: "POST",
+      body: formData
+    });
 
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.error || "Transcription failed");
+    let data = {};
+    try {
+      data = await response.json();
+    } catch {
+      data = {};
     }
 
-    // convert segments into your transcript format
-    transcript = data.segments.map((seg) => ({
-      start: seg.start,
-      end: seg.end,
-      text: seg.text
-    }));
+    if (!response.ok) {
+      throw new Error(data.error || `Transcription failed with status ${response.status}`);
+    }
+
+    if (Array.isArray(data.segments) && data.segments.length > 0) {
+      transcript = data.segments.map((seg, index) => ({
+        start: Number(seg.start ?? index * 11),
+        end: Number(seg.end ?? (Number(seg.start ?? index * 11) + 11)),
+        text: (seg.text || "").trim() || `Segment ${index + 1}`
+      }));
+    } else if (data.text) {
+      transcript = [{
+        start: 0,
+        end: Math.floor(video.duration || 11),
+        text: data.text
+      }];
+    } else {
+      throw new Error("No transcript text returned.");
+    }
 
     renderTranscript();
-
   } catch (error) {
-    transcriptContainer.innerHTML = "Transcription failed.";
-    console.error(error);
+    transcriptContainer.innerHTML = `
+      <div class="empty-state">${error.message || "Transcription failed."}</div>
+    `;
+    console.error("Transcription error:", error);
   }
 });
 
@@ -860,3 +873,4 @@ renderComments();
 renderAI();
 updateActionButtons();
 commentsTimeLabel.textContent = formatTime(0);
+

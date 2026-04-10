@@ -1,6 +1,3 @@
-export default function handler(req, res) {
-  res.status(200).json({ ok: true, route: "transcribe working" });
-}
 export const config = {
   api: {
     bodyParser: false
