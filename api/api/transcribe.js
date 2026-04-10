@@ -60,12 +60,9 @@ export default async function handler(req, res) {
       });
     }
 
-    const fullText = data?.text || "";
-    const segments = Array.isArray(data?.segments) ? data.segments : [];
-
     return res.status(200).json({
-      text: fullText,
-      segments
+      text: data?.text || "",
+      segments: Array.isArray(data?.segments) ? data.segments : []
     });
   } catch (error) {
     console.error("Transcription API error:", error);

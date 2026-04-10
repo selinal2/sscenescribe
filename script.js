@@ -331,12 +331,7 @@ async function transcribeUploadedFile(file) {
     body: formData
   });
 
-  let data = {};
-  try {
-    data = await response.json();
-  } catch {
-    data = {};
-  }
+  const data = await response.json();
 
   if (!response.ok) {
     throw new Error(data.error || `Transcription failed with status ${response.status}`);
@@ -344,6 +339,7 @@ async function transcribeUploadedFile(file) {
 
   return data;
 }
+
 
 function applyTranscriptionResult(data, duration) {
   const segments = Array.isArray(data.segments) ? data.segments : [];
